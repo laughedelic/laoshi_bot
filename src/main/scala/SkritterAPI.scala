@@ -12,35 +12,44 @@ import scala.concurrent._, duration._
 import scala.util._
 
 
-case class SkritterToken(val expiration: Deadline)(
-  val user: String,
-  val token: String,
-  val refresh: String
+case class SkritterAuth(
+  val user: SkritterID,
+  val token: Token,
+  val expiration: EpochTime,
+  val refresh: Token
 ) {
 
-  def expired: Boolean = expiration.isOverdue()
+  def expired: Boolean = expiration - now() > 0
 }
 
-case object SkritterToken {
+case object SkritterAuth {
   implicit val formats = DefaultFormats
 
-  def fromJSON(json: JValue): SkritterToken =
-    SkritterToken((json \ "expires_in").extract[Int].seconds.fromNow)(
-      user    = (json \ "user_id").extract[String],
-      token   = (json \ "access_token").extract[String],
-      refresh = (json \ "refresh_token").extract[String]
+  def fromJSON(json: JValue): SkritterAuth =
+    SkritterAuth(
+      user       = (json \ "user_id").extract[SkritterID],
+      token      = (json \ "access_token").extract[Token],
+      expiration = (json \ "expires_in").extract[Long] + now(),
+      refresh    = (json \ "refresh_token").extract[Token]
     )
 
-  implicit def unmarshaller: FromEntityUnmarshaller[SkritterToken] = {
+  implicit def unmarshaller: FromEntityUnmarshaller[SkritterAuth] = {
     Unmarshaller
       .stringUnmarshaller
       .forContentTypes(ContentTypes.`application/json`)
       .map { str =>
-        SkritterToken.fromJSON(parse(str))
+        SkritterAuth.fromJSON(parse(str))
       }
   }
 }
 
+case class UserInfo(
+  id: String,
+  name: String,
+  created: Date,
+  aboutMe: String,
+  country: String
+)
 
 case object skritter {
 
@@ -61,9 +70,11 @@ case object skritter {
       )
     )
 
+    val users = host.withPath(base / "users")
+    def user(id: String) = host.withPath(base / "users" / id)
   }
 
-  def getToken(code: String)(implicit ec: ExecutionContext): Future[SkritterToken] = {
+  def getToken(code: String)(implicit ec: ExecutionContext): Future[SkritterAuth] = {
 
     val uri = skritter.api.token.withQuery(
       Query(
@@ -83,9 +94,27 @@ case object skritter {
 
     for {
       response <- Http().singleRequest(httpRequest) if response.status.isSuccess
-      skritterToken <- Unmarshal(response).to[SkritterToken]
-    } yield skritterToken
+      skritterAuth <- Unmarshal(response).to[SkritterAuth]
+    } yield skritterAuth
     // TODO: save user token to a DB
+  }
+
+  def getUserInfo(skritterAuth: SkritterAuth)(implicit ec: ExecutionContext): Future[JValue] = {
+
+    val uri = skritter.api.user(skritterAuth.user).withQuery(
+      Query(
+        "bearer_token" -> skritterAuth.token
+        // "fields" -> Seq("name", "created", "aboutMe", "country", "sourceLang").mkString(",")
+      )
+    )
+
+    implicit val system = ActorSystem()
+    implicit val materializer = ActorMaterializer()
+
+    for {
+      response <- Http().singleRequest(HttpRequest(GET, uri)) if response.status.isSuccess
+      str <- Unmarshal(response).to[String]
+    } yield parse(str)
   }
 
 }
