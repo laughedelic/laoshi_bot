@@ -14,7 +14,7 @@ import scala.util._
 import info.mukel.telegrambot4s._, api._, methods._, models._, Implicits._
 
 
-case object LaoshiBot extends App with TelegramBot with Polling with Commands {
+case object LaoshiBot extends App with TelegramBot with Polling with Commands with ChatActions {
 
   def token = credentials.botToken
   val db = DBMock
@@ -55,6 +55,30 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands {
         }
       }
 
+    }
+  }
+
+  on("/vocab") { implicit message => args =>
+    implicit val formats = DefaultFormats
+
+    typing
+    db.authInfo(message.sender).foreach { auth =>
+
+      skritter.api.vocabs.withAuth(auth).?(
+        "q" -> args.mkString(" ")
+      ).run.foreach { json =>
+        (json \ "Vocabs").extract[List[Vocab]].foreach { vocab =>
+
+          if (vocab.style != "trad") {
+            request(SendMessage(
+              message.sender,
+              vocab.markdown,
+              parseMode = Some(ParseMode.Markdown),
+              disableWebPagePreview = Some(true)
+            ))
+          }
+        }
+      }
     }
   }
 

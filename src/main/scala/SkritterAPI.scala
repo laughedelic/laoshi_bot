@@ -63,15 +63,14 @@ case object skritter {
 
     val vocabs = host.withPath(base / "vocabs")
 
-    val authorizeInit = skritter.api.authorize.withQuery(
-      Query(
-        "response_type" -> "code",
-        "client_id" -> credentials.skritterClientID
-      )
+    val authorizeInit = skritter.api.authorize ? (
+      "response_type" -> "code",
+      "client_id"     -> credentials.skritterClientID
     )
 
     val users = host.withPath(base / "users")
     def user(id: String) = host.withPath(base / "users" / id)
+
   }
 
   def getToken(code: String)(implicit ec: ExecutionContext): Future[SkritterAuth] = {
@@ -101,20 +100,10 @@ case object skritter {
 
   def getUserInfo(skritterAuth: SkritterAuth)(implicit ec: ExecutionContext): Future[JValue] = {
 
-    val uri = skritter.api.user(skritterAuth.user).withQuery(
-      Query(
-        "bearer_token" -> skritterAuth.token
-        // "fields" -> Seq("name", "created", "aboutMe", "country", "sourceLang").mkString(",")
-      )
-    )
+    val uri = skritter.api.user(skritterAuth.user).withAuth(skritterAuth)
+      // "fields" -> Seq("name", "created", "aboutMe", "country", "sourceLang").mkString(",")
 
-    implicit val system = ActorSystem()
-    implicit val materializer = ActorMaterializer()
-
-    for {
-      response <- Http().singleRequest(HttpRequest(GET, uri)) if response.status.isSuccess
-      str <- Unmarshal(response).to[String]
-    } yield parse(str)
+    uri.run
   }
 
 }
