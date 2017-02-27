@@ -8,21 +8,22 @@ case class Vocab(
   style: String,
   writing: String,
   reading: Pinyin,
-  toughness: Double,
+  toughness: Int,
+  toughnessString: String,
   definitions: Map[LangCode, String],
   dictionaryLinks: Map[String, String]
 ) {
 
   def markdown: String = {
     Seq(
-      s"✍️${writing}  🔊${reading}  💪${toughness}",
+      s"✍️${writing}  🔊${reading}  💪${toughness} (${toughnessString})",
 
       definitions.map { case (lang, defn) =>
-        s"${lang}: ${defn}"
+        s"""${flags.get(lang).getOrElse(lang + ":")} ${defn}"""
       }.mkString("\n"),
 
       ( dictionaryLinks +
-        ("БКРС" -> s"https://bkrs.info/slovo.php?ch=${writing}")
+        ("大БКРС" -> s"https://bkrs.info/slovo.php?ch=${writing}")
       ).collect { case (name, url) if url.nonEmpty =>
         s"[${name}](${url})"
       }.mkString(" | ")

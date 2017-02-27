@@ -69,8 +69,8 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
       ).get.foreach { json =>
         (json \ "Vocabs").extract[List[Vocab]]
           .filter { v =>
-            v.style != "trad" &&
-            v.toughness < 12 // kind of random choice to avoid too rare characters
+            v.style != "trad"
+            // && v.toughness <= 10 // kind of random choice to avoid too rare characters
           }
           .sortBy { _.toughness }
           .foreach { vocab =>
@@ -81,10 +81,17 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
               parseMode = Some(ParseMode.Markdown),
               disableWebPagePreview = Some(true),
               replyMarkup = InlineKeyboardMarkup(Seq(Seq(
-                InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}")
+                // TODO: show add button only whn this word is not studied yet
+                InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}"),
+                InlineKeyboardButton("🔊", callbackData = s"${callback.add}${vocab.id}"),
+                InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+                InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
+                // TODO: more actions: correct word, components, get audio, start/ban
               )))
             ))
           }
+
+        // TODO: implement pagination: output only ~5 top words, then send one more message with a "More" button
       }
     }
   }

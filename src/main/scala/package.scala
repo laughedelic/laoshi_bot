@@ -72,4 +72,56 @@ package object laoshi {
       request(PUT)(HttpEntity(`application/json`, compact(render(body))))
   }
 
+  val langs = Map[String, String](
+    "ar" -> "العربية",
+    "da" -> "Dansk",
+    "de" -> "Deutsch",
+    "en" -> "English",
+    "es" -> "Español",
+    "fi" -> "Suomi",
+    "fr" -> "Français",
+    "hi" -> "हिन्दी",
+    "hu" -> "Magyar",
+    "it" -> "Italiano",
+    "ja" -> "日本語",
+    "ko" -> "한국어",
+    "nl" -> "Nederlands",
+    "no" -> "norsk",
+    "pl" -> "Polski",
+    "pt" -> "Português",
+    "ro" -> "Română",
+    "ru" -> "Русский",
+    "sv" -> "Svenska",
+    "vi" -> "Việt",
+    "yue" -> "English/Cantonese",
+    "zh-cn" -> "简体中文",
+    "zh-tw" -> "繁體中文"
+  )
+
+  val flags = Map[String, String](
+    "ar" -> "العربية",
+    "da" -> "🇩🇰",
+    "de" -> "🇩🇪",
+    "en" -> "🇬🇧",
+    "es" -> "🇪🇸",
+    "fi" -> "🇫🇮",
+    "fr" -> "🇫🇷",
+    "hi" -> "🇮🇳",
+    "hu" -> "🇭🇺",
+    "it" -> "🇮🇹",
+    "ja" -> "🇯🇵",
+    "ko" -> "🇰🇷",
+    "nl" -> "🇳🇱",
+    "no" -> "🇳🇴",
+    "pl" -> "🇵🇱",
+    "pt" -> "🇵🇹",
+    "ro" -> "🇷🇴",
+    "ru" -> "🇷🇺",
+    "sv" -> "🇸🇪",
+    "vi" -> "🇻🇳",
+    "yue" -> "🇬🇧/🇨🇳",
+    "zh-tw" -> "🇹🇼",
+    "zh-cn" -> "🇨🇳",
+    "zh" ->    "🇨🇳"
+  )
 }
