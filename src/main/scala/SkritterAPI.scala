@@ -56,21 +56,24 @@ case object skritter {
   case object api {
 
     val host = Uri("http://beta.skritter.com")
-    private val base = Path("/api/v0")
+    private val base = host.withPath(Path("/api/v0"))
 
-    val authorize = host.withPath(base / "oauth2" / "authorize")
-    val token     = host.withPath(base / "oauth2" / "token")
+    val authorize = base / "oauth2" / "authorize"
+    val token     = base / "oauth2" / "token"
 
-    val vocabs = host.withPath(base / "vocabs")
+    val vocabs = base / "vocabs"
 
     val authorizeInit = skritter.api.authorize ? (
       "response_type" -> "code",
       "client_id"     -> credentials.skritterClientID
     )
 
-    val users = host.withPath(base / "users")
-    def user(id: String) = host.withPath(base / "users" / id)
+    val users = base / "users"
+    def user(id: String) = base / "users" / id
 
+    val items = base / "items"
+
+    val vocablists = base / "vocablists"
   }
 
   def getToken(code: String)(implicit ec: ExecutionContext): Future[SkritterAuth] = {
@@ -103,7 +106,7 @@ case object skritter {
     val uri = skritter.api.user(skritterAuth.user).withAuth(skritterAuth)
       // "fields" -> Seq("name", "created", "aboutMe", "country", "sourceLang").mkString(",")
 
-    uri.run
+    uri.get
   }
 
 }

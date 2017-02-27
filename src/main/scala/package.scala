@@ -1,8 +1,7 @@
 package laughedelic.telegram.bot
 
-import akka.http.scaladsl.model._, Uri._
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model._, Uri._, headers._, HttpMethods._
+import akka.http.scaladsl.model._, Uri._, headers._, HttpMethods._, ContentTypes._
 import akka.http.scaladsl.unmarshalling._
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
@@ -31,7 +30,13 @@ package object laoshi {
   case object simp extends ChineseStyle
   case object trad extends ChineseStyle
 
+  val parts = List("rune", "rdng", "defn", "tone")
+
   implicit class UriOps(val uri: Uri) extends AnyVal {
+
+    def /(segment: String): Uri = uri.withPath(
+      uri.path / segment
+    )
 
     // Adds parameters to the URI
     def ?(params: (String, String)*): Uri = uri.withQuery(
@@ -44,16 +49,27 @@ package object laoshi {
 
     def withAuth(auth: SkritterAuth): Uri = withToken(auth.token)
 
-    def run(implicit ec: ExecutionContext): Future[JValue] = {
+    def request(method: HttpMethod)(entity: RequestEntity)(implicit ec: ExecutionContext): Future[JValue] = {
 
       implicit val system = ActorSystem()
       implicit val materializer = ActorMaterializer()
 
+      val req = HttpRequest(method, uri, entity = entity)
+
       for {
-        response <- Http().singleRequest(HttpRequest(GET, uri)) if response.status.isSuccess
+        response <- Http().singleRequest(req) // if response.status.isSuccess
         str <- Unmarshal(response).to[String]
       } yield parse(str)
     }
+
+
+    def get(implicit ec: ExecutionContext): Future[JValue] = request(GET)(HttpEntity.Empty)
+
+    def post(body: JValue)(implicit ec: ExecutionContext): Future[JValue] =
+      request(POST)(HttpEntity(`application/json`, compact(render(body))))
+
+    def  put(body: JValue)(implicit ec: ExecutionContext): Future[JValue] =
+      request(PUT)(HttpEntity(`application/json`, compact(render(body))))
   }
 
 }

@@ -8,13 +8,14 @@ case class Vocab(
   style: String,
   writing: String,
   reading: Pinyin,
+  toughness: Double,
   definitions: Map[LangCode, String],
   dictionaryLinks: Map[String, String]
 ) {
 
   def markdown: String = {
     Seq(
-      s"${writing} (${reading})",
+      s"✍️${writing}  🔊${reading}  💪${toughness}",
 
       definitions.map { case (lang, defn) =>
         s"${lang}: ${defn}"
