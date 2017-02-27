@@ -21,48 +21,50 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
   def token = credentials.botToken
   val db = DBMock
 
-  on("/start") { implicit message => args => args match {
-
+  on("/start") { implicit message => {
+      // OAuth code from Skritter redirect
       case Seq(code) => {
-        // FIXME: if the message.sender(==chat.id) is not a user, don't bother
-        skritter.getToken(code).foreach { skritterAuth =>
-          db.recordAuthInfo(message.sender, skritterAuth)
+        message.from.map { user =>
 
-          // request(SendMessage(message.sender, s"Your new token is ${skritterAuth.token} it expires in ${skritterAuth.expiration.timeLeft.toDays} days"))
+          skritter.getToken(code).foreach { skritterAuth =>
+            db.recordAuthInfo(user, skritterAuth)
 
-          skritter.getUserInfo(skritterAuth).foreach { json =>
-            val username = (json \ "User" \ "name").extract[String]
+            // request(SendMessage(message.chat.id, s"Your new token is ${skritterAuth.token} it expires in ${skritterAuth.expiration.timeLeft.toDays} days"))
 
-            request(SendMessage(message.sender, s"You have successfully logged in on Skritter as ${username}"))
+            skritter.getUserInfo(skritterAuth).foreach { json =>
+              val username = (json \ "User" \ "name").extract[String]
+
+              request(SendMessage(message.chat.id, s"You have successfully logged in on Skritter as ${username}"))
+            }
           }
         }
       }
-
+      // no args
       case _ => {
-        val auth = db.authInfo(message.sender)
-
-        if (auth.isEmpty) {
-          request(SendMessage(
-            message.sender,
-            s"""
-            |Click [here](${skritter.api.authorizeInit}) to sign in to Skritter and allow this bot access to your vocabulary.
-            """.trim.stripMargin,
-            parseMode = Some(ParseMode.Markdown),
-            disableWebPagePreview = Some(true)
-          ))
-        } else {
-          request(SendMessage(message.sender, s"You are already authorized on Skritter"))
-          logger.debug(s"User ${message.sender} already is already authorized: ${db.authInfo(message.sender)}")
+        message.from.flatMap(db.authInfo) match {
+          case Some(auth) => {
+            request(SendMessage(message.chat.id, s"You are already authorized on Skritter"))
+            logger.debug(s"User ${auth.user} already is already authorized: ${auth}")
+          }
+          case _ => {
+            request(SendMessage(
+              message.chat.id,
+              s"""
+              |Click [here](${skritter.api.authorizeInit}) to sign in to Skritter and allow this bot access to your vocabulary.
+              """.trim.stripMargin,
+              parseMode = Some(ParseMode.Markdown),
+              disableWebPagePreview = Some(true)
+            ))
+          }
         }
       }
-
     }
   }
 
   def vocabLookup(text: String)(implicit message: Message) = if (text.trim.nonEmpty) {
-    typing
 
-    db.authInfo(message.sender).foreach { auth =>
+    message.from.flatMap(db.authInfo).foreach { auth =>
+      typing
 
       skritter.api.vocabs.withAuth(auth).?(
         "q" -> text.trim
@@ -76,17 +78,17 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
           .foreach { vocab =>
 
             request(SendMessage(
-              message.sender,
+              message.chat.id,
               vocab.markdown,
               parseMode = Some(ParseMode.Markdown),
               disableWebPagePreview = Some(true),
               replyMarkup = InlineKeyboardMarkup(Seq(Seq(
                 // TODO: show add button only whn this word is not studied yet
                 InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}"),
-                InlineKeyboardButton("🔊", callbackData = s"${callback.add}${vocab.id}"),
-                InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
-                InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
+                InlineKeyboardButton("🔊", callbackData = s"${callback.add}${vocab.id}")
                 // TODO: more actions: correct word, components, get audio, start/ban
+                // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+                // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
               )))
             ))
           }
@@ -100,7 +102,9 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     vocabLookup(args.mkString(" "))
   }
 
+  // This react on the text without any commands
   on(msg => msg.text.nonEmpty) { implicit message =>
+    // TODO: finter out banned words
     vocabLookup(message.text.getOrElse(""))
   }
 
@@ -114,7 +118,7 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     for {
       data    <- cbq.data.map(_.stripPrefix(callback.add))
       message <- cbq.message
-      auth    <- db.authInfo(message.sender)
+      auth    <- db.authInfo(cbq.from)
     } yield {
 
       data.split('|').toList match {
@@ -164,7 +168,7 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     for {
       data    <- cbq.data.map(_.stripPrefix(callback.chooseList))
       message <- cbq.message
-      auth    <- db.authInfo(message.sender)
+      auth    <- db.authInfo(cbq.from)
     } yield {
 
       data.split('|').toList match {
