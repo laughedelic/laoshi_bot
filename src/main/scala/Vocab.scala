@@ -24,7 +24,7 @@ case class Vocab(
 
   def markdown: String = {
     Seq(
-      s"${writing}  /🔉${reading}  💪${toughness} (${toughnessString})",
+      s"${writing}  🔉${reading}  💪${toughness} (${toughnessString})",
 
       definitions.map { case (lang, defn) =>
         s"""${flags.get(lang).getOrElse(lang + ":")} ${defn}"""

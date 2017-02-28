@@ -182,15 +182,6 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
         case vocabId :: listID :: sectionID :: _ => {
           // ackCallback("Adding it to the list...")
 
-          // def newItem(part: String): JValue = {
-          //   ("id"           -> s"${auth.user}-${vocabId}-${part}") ~
-          //   ("lang"         -> "zh") ~
-          //   ("part"         -> part) ~
-          //   ("vocabIds"     -> Seq(vocabId)) ~
-          //   ("vocabListIds" -> Seq(listID)) ~
-          //   ("sectionIds"   -> Seq(sectionID))
-          // }
-
           val newRow: JObject = ("vocabId" -> vocabId)
           val sectionUri = (skritter.api.vocablists / listID / "sections" / sectionID).withAuth(auth)
 
