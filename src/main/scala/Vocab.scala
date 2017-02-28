@@ -10,13 +10,14 @@ case class Vocab(
   reading: Pinyin,
   toughness: Int,
   toughnessString: String,
+  audio: Option[String],
   definitions: Map[LangCode, String],
   dictionaryLinks: Map[String, String]
 ) {
 
   def markdown: String = {
     Seq(
-      s"✍️${writing}  🔊${reading}  💪${toughness} (${toughnessString})",
+      s"${writing}  🔉${reading}  💪${toughness} (${toughnessString})",
 
       definitions.map { case (lang, defn) =>
         s"""${flags.get(lang).getOrElse(lang + ":")} ${defn}"""
