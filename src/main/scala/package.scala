@@ -10,6 +10,7 @@ import org.json4s._, jackson.JsonMethods._
 
 import scala.concurrent._, duration._
 import scala.util._
+import scala.collection.JavaConversions._
 
 package object laoshi {
 
@@ -26,11 +27,28 @@ package object laoshi {
   type LangCode = String
   type Pinyin = String
 
+  case object callback {
+    val add = "add:"
+    val audio = "audio:"
+    val chooseList = "chooseList:"
+    val lookup = "lookup:"
+  }
+
+  def startWith(param: String) =
+    s"https://telegram.me/laoshi_bot?start=${param}"
+
   sealed trait ChineseStyle
   case object simp extends ChineseStyle
   case object trad extends ChineseStyle
 
   val parts = List("rune", "rdng", "defn", "tone")
+
+  // TODO: add more or make a smarter check to filter out punctuation
+  // val punctuation = List("。", "，", "、", "‧", "～")
+
+  def isIdeographic(str: String): Boolean =
+    str.codePoints.toArray.forall { Character.isIdeographic(_) }
+
 
   implicit class UriOps(val uri: Uri) extends AnyVal {
 
@@ -124,4 +142,11 @@ package object laoshi {
     "zh-cn" -> "🇨🇳",
     "zh" ->    "🇨🇳"
   )
+
+
+  import com.huaban.analysis.jieba._, JiebaSegmenter.SegMode
+  val segmenter = new JiebaSegmenter()
+
+  def segment(text: String): Seq[String] =
+    segmenter.process(text, SegMode.SEARCH).map(_.word)
 }

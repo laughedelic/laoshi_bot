@@ -12,6 +12,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-http" % "10.0.4",
   "com.github.pathikrit" %% "better-files" % "2.17.1",
 
+  "com.huaban" % "jieba-analysis" % "1.0.2",
+
   "com.typesafe.scala-logging" %% "scala-logging" % "3.5.0",
   "ch.qos.logback" % "logback-classic" % "1.1.7"
 )

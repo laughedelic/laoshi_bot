@@ -29,97 +29,158 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
           skritter.getToken(code).foreach { skritterAuth =>
             db.recordAuthInfo(user, skritterAuth)
 
-            // request(SendMessage(message.chat.id, s"Your new token is ${skritterAuth.token} it expires in ${skritterAuth.expiration.timeLeft.toDays} days"))
+            // reply(message.chat.id, s"Your new token is ${skritterAuth.token} it expires in ${skritterAuth.expiration.timeLeft.toDays} days")
 
             skritter.getUserInfo(skritterAuth).foreach { json =>
               val username = (json \ "User" \ "name").extract[String]
 
-              request(SendMessage(message.chat.id, s"You have successfully logged in on Skritter as ${username}"))
+              reply(s"You have successfully logged in on Skritter as ${username}")
             }
           }
         }
       }
       // no args
-      case _ => {
+      case Seq() => {
         message.from.flatMap(db.authInfo) match {
           case Some(auth) => {
-            request(SendMessage(message.chat.id, s"You are already authorized on Skritter"))
+            reply(s"You are already authorized on Skritter")
             logger.debug(s"User ${auth.user} already is already authorized: ${auth}")
           }
           case _ => {
-            request(SendMessage(
-              message.chat.id,
-              s"""
-              |Click [here](${skritter.api.authorizeInit}) to sign in to Skritter and allow this bot access to your vocabulary.
-              """.trim.stripMargin,
+            reply(
+              s"Click [here](${skritter.api.authorizeInit}) to sign in to Skritter and allow this bot access to your vocabulary",
               parseMode = Some(ParseMode.Markdown),
               disableWebPagePreview = Some(true)
-            ))
+            )
           }
         }
       }
     }
   }
 
-  def vocabLookup(text: String)(implicit message: Message) = if (text.trim.nonEmpty) {
+  def vocabLookup(word: String)(implicit auth: SkritterAuth, message: Message) = {
+    typing
 
-    message.from.flatMap(db.authInfo).foreach { auth =>
-      typing
+    skritter.api.vocabs.withAuth(auth).?("q" -> word).get.foreach { json =>
 
-      skritter.api.vocabs.withAuth(auth).?(
-        "q" -> text.trim
-      ).get.foreach { json =>
-        (json \ "Vocabs").extract[List[Vocab]]
-          .filter { v =>
-            v.style != "trad"
-            // && v.toughness <= 10 // kind of random choice to avoid too rare characters
-          }
-          .sortBy { _.toughness }
-          .foreach { vocab =>
+      (json \ "Vocabs").extract[List[Vocab]]
+        .filter { v =>
+          v.style != "trad"
+          // && v.toughness <= 10 // kind of random choice to avoid too rare characters
+        }
+        .sortBy { _.toughness }
+        .foreach { vocab =>
 
-            request(SendMessage(
-              message.chat.id,
-              vocab.markdown,
-              parseMode = Some(ParseMode.Markdown),
-              disableWebPagePreview = Some(true),
-              replyMarkup = InlineKeyboardMarkup(Seq(
-                Seq(
-                  // TODO: show add button only whn this word is not studied yet
-                  Some(
-                    InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}")
-                  ),
-                  vocab.audio.map { url =>
-                    InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}")
-                  }
-                  // TODO: more actions: correct word, components, get audio, start/ban
-                  // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
-                  // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
-                ).flatten
-              ))
+          reply(
+            vocab.markdown,
+            parseMode = Some(ParseMode.Markdown),
+            disableWebPagePreview = Some(true),
+            replyMarkup = InlineKeyboardMarkup(Seq(
+              Seq(
+                // TODO: show add button only whn this word is not studied yet
+                Some(
+                  InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}")
+                ),
+                vocab.audio.map { url =>
+                  InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}")
+                }
+                // TODO: more actions: correct word, components, get audio, start/ban
+                // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+                // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
+              ).flatten
             ))
-          }
+          )
+        }
 
-        // TODO: implement pagination: output only ~5 top words, then send one more message with a "More" button
+      // TODO: implement pagination: output only ~5 top words, then send one more message with a "More" button
+    }
+  }
+
+  on("/lookup", "Look up Skritter vocabulary item") { implicit message => args =>
+    message.from.flatMap(db.authInfo).foreach { implicit auth =>
+      args.foreach(vocabLookup)
+    }
+  }
+
+  // This react on the text without any commands
+  on(msg => msg.text.nonEmpty && !msg.text.map(_.startsWith("/")).getOrElse(false)) { implicit message =>
+
+    // messages that start with 🔍 are treated as the ones with /lookup
+    if (message.text.map(_.startsWith("🔍")).getOrElse(false)) {
+      message.from.flatMap(db.authInfo).foreach { implicit auth =>
+        message.text.foreach(vocabLookup)
+      }
+    // otherwise we segment the incoming message and offer to look up words
+    } else {
+      val words = segment(message.text.getOrElse("")).map(_.trim)
+      val ideographs = words.filter(isIdeographic)
+
+      if (
+        words.length > 1 &&
+        // more than 40% of ideographs:
+        ((words.length: Double) / ideographs.length) > 0.4
+      ) {
+        typing
+
+        reply(
+          words.mkString(" / "),
+          // replyToMessageId = message.messageId,
+          replyMarkup = InlineKeyboardMarkup(Seq(Seq(
+            InlineKeyboardButton("Lookup a word", callbackData = s"${callback.lookup}")
+          )))
+        )
       }
     }
   }
 
-  on("/vocab", "Look up Skritter vocabulary item") { implicit message => args =>
-    vocabLookup(args.mkString(" "))
+  // CALLBACKS //
+
+  // LOOKUP callback
+  onCallback(_.data.map(_.startsWith(callback.lookup)).getOrElse(false)) { implicit cbq =>
+    for {
+      word    <- cbq.data.map(_.stripPrefix(callback.lookup))
+      message <- cbq.message
+      auth    <- db.authInfo(cbq.from)
+    } yield {
+      ackCallback("")
+      // Initial call
+      if (word.isEmpty) { // setup buttons for each word
+
+        message.text.foreach { text =>
+
+          val words = text.split(" / ").filter(isIdeographic)
+
+          logger.debug(words.toString)
+
+          val buttons = words.map { word =>
+            Seq(KeyboardButton(s"🔍${word}"))
+          }
+
+          reply("Choose a word",
+            replyMarkup = ReplyKeyboardMarkup(
+              buttons,
+              resizeKeyboard = true,
+              oneTimeKeyboard = true
+            )
+          )(message)
+        }
+      } else {
+
+        vocabLookup(word)(auth, message)
+
+        // request(EditMessageReplyMarkup(
+        //   message.chat.id,
+        //   message.messageId,
+        //   replyMarkup = InlineKeyboardMarkup(Seq(Seq(
+        //     InlineKeyboardButton("Lookup a word", callbackData = s"${callback.lookup}")
+        //   )))
+        // ))
+      }
+    }
   }
 
-  // This react on the text without any commands
-  on(msg => msg.text.nonEmpty) { implicit message =>
-    // TODO: finter out banned words
-    vocabLookup(message.text.getOrElse(""))
-  }
 
-  case object callback {
-    val add = "add "
-    val audio = "audio "
-    val chooseList = "chooseList "
-  }
-
+  // ADD callback
   onCallback(_.data.map(_.startsWith(callback.add)).getOrElse(false)) { implicit cbq =>
 
     for {
@@ -169,6 +230,7 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     }
   }
 
+  // CHOOSE LIST callback
   onCallback(_.data.map(_.startsWith(callback.chooseList)).getOrElse(false)) { implicit cbq =>
     logger.debug("\nchoosing list\n")
 
@@ -210,6 +272,7 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     }
   }
 
+  // AUDIO callback
   onCallback(_.data.map(_.startsWith(callback.audio)).getOrElse(false)) { implicit cbq =>
 
     for {
