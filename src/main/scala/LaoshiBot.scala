@@ -105,32 +105,28 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
   // This react on the text without any commands
   on(msg => msg.text.nonEmpty && !msg.text.map(_.startsWith("/")).getOrElse(false)) { implicit message =>
 
-    // messages that start with 🔍 are treated as the ones with /lookup
-    if (message.text.map(_.startsWith("🔍")).getOrElse(false)) {
-      message.from.flatMap(db.authInfo).foreach { implicit auth =>
-        message.text.foreach(vocabLookup)
-      }
-    // otherwise we segment the incoming message and offer to look up words
-    } else {
-      val words = segment(message.text.getOrElse("")).map(_.trim)
-      val ideographs = words.filter(isIdeographic)
+    // // messages that start with 🔍 are treated as the ones with /lookup
+    // if (message.text.map(_.startsWith("🔍")).getOrElse(false)) {
+    //   message.from.flatMap(db.authInfo).foreach { implicit auth =>
+    //     message.text.foreach(vocabLookup)
+    //   }
+    // } else {
+      // otherwise we segment the incoming message and offer to look up words
+      val text = message.text.getOrElse("")
 
-      if (
-        words.length > 1 &&
-        // more than 40% of ideographs:
-        ((words.length: Double) / ideographs.length) > 0.4
-      ) {
+      if (text.isChineseEnough(minWords = 2, minPercentage = 0.5)) {
         typing
 
         reply(
-          words.mkString(" / "),
+          text.segmentedString(),
+          parseMode = Some(ParseMode.Markdown)
           // replyToMessageId = message.messageId,
-          replyMarkup = InlineKeyboardMarkup(Seq(Seq(
-            InlineKeyboardButton("Lookup a word", callbackData = s"${callback.lookup}")
-          )))
+          // replyMarkup = InlineKeyboardMarkup(Seq(Seq(
+          //   InlineKeyboardButton("Lookup a word", callbackData = s"${callback.lookup}")
+          // )))
         )
       }
-    }
+    // }
   }
 
   // CALLBACKS //
@@ -148,7 +144,7 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
 
         message.text.foreach { text =>
 
-          val words = text.split(" / ").filter(isIdeographic)
+          val words = text.split(" / ").filter(_.isIdeographic)
 
           logger.debug(words.toString)
 

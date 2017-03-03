@@ -7,7 +7,7 @@ case class Vocab(
   lang: LangCode,
   style: String,
   writing: String,
-  reading: Pinyin,
+  reading: String,
   toughness: Int,
   toughnessString: String,
   ilk: String,

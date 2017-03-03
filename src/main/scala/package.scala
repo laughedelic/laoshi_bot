@@ -10,7 +10,6 @@ import org.json4s._, jackson.JsonMethods._
 
 import scala.concurrent._, duration._
 import scala.util._
-import scala.collection.JavaConversions._
 
 package object laoshi {
 
@@ -25,7 +24,6 @@ package object laoshi {
   type Token = String
 
   type LangCode = String
-  type Pinyin = String
 
   case object callback {
     val add = "add:"
@@ -45,9 +43,6 @@ package object laoshi {
 
   // TODO: add more or make a smarter check to filter out punctuation
   // val punctuation = List("。", "，", "、", "‧", "～")
-
-  def isIdeographic(str: String): Boolean =
-    str.codePoints.toArray.forall { Character.isIdeographic(_) }
 
 
   implicit class UriOps(val uri: Uri) extends AnyVal {
@@ -144,9 +139,66 @@ package object laoshi {
   )
 
 
-  import com.huaban.analysis.jieba._, JiebaSegmenter.SegMode
-  val segmenter = new JiebaSegmenter()
 
-  def segment(text: String): Seq[String] =
-    segmenter.process(text, SegMode.SEARCH).map(_.word)
+  implicit class HanStringOps(val str: String) extends AnyVal {
+    import com.hankcs.hanlp._, seg.common.Term, dictionary.py.Pinyin
+    import scala.collection.JavaConversions._
+
+    def terms: List[Term] = HanLP.segment(str).toList
+
+    def wordTerms: List[Term] = terms
+      .filterNot { t =>              // No
+        t.nature.name.startsWith("w") ||  // punctuation marks
+        t.nature.name.startsWith("x")     // links, emails, etc.
+      }
+
+    def pinyinList: List[Pinyin] = HanLP.convertToPinyinList(str).toList
+
+    def segments: List[(Term, List[Pinyin])] = {
+      terms.map { term =>
+        term -> term.word.pinyinList
+      }
+    }
+
+    // def termWithPinyin(term: Term, ): String =
+    //   s"${term.word} ${pys.map(_.getPinyinWithToneMark).mkString}"
+    // }
+
+    // Formats segments as strings with their pinyin (with tone marks)
+    def segmentedString(delimiter: String = " / "): String =
+      segments.foldLeft("") { case (acc, (term, pys)) =>
+
+        val py = {
+          val syllables = pys.filterNot(_ == Pinyin.none5)
+          if (syllables.isEmpty) None
+          else Some(syllables.map(_.getPinyinWithToneMark).mkString)
+        }
+
+        // if this term doesn't have pinyin it's just "word", otherwise "拼音 pīnyīn"
+        val termWithPinyin = Seq(Some(term.word), py).flatten.mkString(" ")
+
+        acc + Seq( // punctuation sticks to the previous word:
+          if (term.nature.name.startsWith("w")) "" else delimiter,
+          termWithPinyin
+        ).mkString
+      }
+
+    // These are not related to HanLP:
+
+    // Checking that each character is from the Unicode CJK block
+    def isIdeographic: Boolean =
+      str.codePoints.toArray.forall { Character.isIdeographic(_) }
+
+    // Determines if the text contains enough Chinese to provide help for it
+    def isChineseEnough(
+      minWords: Int,         // minimum number Chinese words (not characters)
+      minPercentage: Double  // minimum of chinese words in relation to all words
+    ): Boolean = {
+      val allWords = wordTerms.map(_.word)
+      val cjkWords = allWords.filter(_.isIdeographic)
+
+      (cjkWords.length >= minWords) &&
+      ((cjkWords.length: Double) / allWords.length) >= minPercentage
+    }
+  }
 }
