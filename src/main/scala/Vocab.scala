@@ -2,6 +2,13 @@ package laughedelic.telegram.bot.laoshi
 
 import java.net.URL
 
+case class Audio(
+  // id: String,
+  source: String,
+  reading: String,
+  mp3: String
+)
+
 case class Vocab(
   id: ID,
   lang: LangCode,
@@ -11,7 +18,7 @@ case class Vocab(
   toughness: Int,
   toughnessString: String,
   ilk: String,
-  audio: Option[String],
+  audios: List[Audio],
   definitions: Map[LangCode, String],
   dictionaryLinks: Map[String, String]
 ) {
@@ -22,9 +29,13 @@ case class Vocab(
       Some("HanziDB" -> s"http://hanzidb.org/lookup?q=${writing}")
   ).flatten
 
+  // val readings: Seq[String] = audios.map { a =>
+  //   s"[🔉${a.reading.toneNumbersToMarks}](${a.mp3})"
+  // }
+
   def markdown: String = {
     Seq(
-      s"${writing}  🔉${reading}  💪${toughness} (${toughnessString})",
+      s"${writing}  🔉${reading.toneNumbersToMarks}  💪${toughness} (${toughnessString})",
 
       definitions.map { case (lang, defn) =>
         s"""${flags.get(lang).getOrElse(lang + ":")} ${defn}"""

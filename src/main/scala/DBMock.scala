@@ -20,7 +20,7 @@ case object DBMock extends DB {
   implicit private val formats = Serialization.formats(NoTypeHints)
 
   def recordAuthInfo(user: User, info: SkritterAuth): Unit = {
-    (db / user.toString).overwrite(
+    (db / user.id.toString).overwrite(
       Serialization.write(info)
     )
   }
@@ -28,7 +28,7 @@ case object DBMock extends DB {
   def authInfo(user: User): Option[SkritterAuth] = {
     Try {
       Serialization.read[SkritterAuth](
-        (db / user.toString).contentAsString
+        (db / user.id.toString).contentAsString
       )
     }.toOption
   }

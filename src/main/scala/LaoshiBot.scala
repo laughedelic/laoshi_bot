@@ -58,6 +58,20 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     }
   }
 
+  def vocabInlineKeyboard(vocab: Vocab) = InlineKeyboardMarkup(
+    Seq(
+      Seq(
+        // TODO: show add button only whn this word is not studied yet
+        InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}"),
+        InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}|${vocab.reading}")
+        // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+        // TODO: more actions: correct word, components, get audio, start/ban
+        // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+        // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
+      )
+    )
+  )
+
   def vocabLookup(word: String)(implicit auth: SkritterAuth, message: Message) = {
     typing
 
@@ -75,20 +89,7 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
             vocab.markdown,
             parseMode = Some(ParseMode.Markdown),
             disableWebPagePreview = Some(true),
-            replyMarkup = InlineKeyboardMarkup(Seq(
-              Seq(
-                // TODO: show add button only whn this word is not studied yet
-                Some(
-                  InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}")
-                ),
-                vocab.audio.map { url =>
-                  InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}")
-                }
-                // TODO: more actions: correct word, components, get audio, start/ban
-                // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
-                // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
-              ).flatten
-            ))
+            replyMarkup = vocabInlineKeyboard(vocab)
           )
         }
 
@@ -278,31 +279,87 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     } yield {
 
       data.split('|').toList match {
-        case vocabId :: _ => {
+        case List(vocabId, readings) => readings.split(""",\s*""").toList match {
+          case Nil => ackCallback("There is no recorded audio for this")
+          // single reading:
+          case List(reading) => {
 
-          uploadingAudio(message)
+            uploadingAudio(message)
 
-          skritter.api.vocabs.withAuth(auth).?(
-            "ids" -> vocabId
-          ).get.foreach { json =>
+            skritter.api.vocabs.withAuth(auth).?(
+              "q" -> reading
+            ).get.foreach { json =>
 
-            (json \ "Vocabs").extract[List[Vocab]]
-              .filter(_.audio.nonEmpty)
-              .headOption
-              .foreach { vocab =>
+              val linkOpt = (json \ "Vocabs").extract[List[Vocab]]
+                .flatMap(_.audios)
+                .filter { _.reading == reading }
+                .headOption
+                .map(_.mp3)
 
-                // TODO: convert it to .ogg voice messages
-                request(SendAudio(
-                  message.chat.id,
-                  vocab.audio.get, // FIXME
-                  replyToMessageId = message.messageId
-                ))
+              linkOpt match {
+                case None =>
+                  ackCallback(s"There is no recorded audio for ${reading.toneNumbersToMarks} 😟")
+                case Some(link) => {
 
-                ackCallback(s"Pronunciation for ${vocab.writing} 🔉${vocab.reading} is uploaded!")
+                  // TODO: convert it to .ogg voice messages
+                  request(SendAudio(
+                    message.chat.id,
+                    link,
+                    caption = reading.toneNumbersToMarks,
+                    replyToMessageId = message.messageId
+                  ))
+
+                  ackCallback(s"Audio for 🔉${reading.toneNumbersToMarks} is uploaded!")
+                }
               }
+            }
+          }
+          // multiple readings:
+          case readings => {
+            ackCallback(s"Choose pronunciation")
+
+            val buttons = readings.map { reading =>
+              Seq(InlineKeyboardButton(
+                s"🔉${reading.toneNumbersToMarks}",
+                callbackData = s"${callback.audio}${vocabId}|${reading}"
+              ))
+            } :+ Seq(
+              InlineKeyboardButton("🔙", callbackData = s"${callback.back}${vocabId}")
+            )
+
+            request(EditMessageReplyMarkup(
+              message.chat.id,
+              message.messageId,
+              replyMarkup = InlineKeyboardMarkup(buttons)
+            ))
           }
         }
         case _ => ackCallback("Something went wrong...")
+      }
+    }
+  }
+
+  onCallback(_.data.map(_.startsWith(callback.back)).getOrElse(false)) { implicit cbq =>
+
+    for {
+      vocabId <- cbq.data.map(_.stripPrefix(callback.back))
+      message <- cbq.message
+      auth    <- db.authInfo(cbq.from)
+    } yield {
+      skritter.api.vocabs.withAuth(auth).?("ids" -> vocabId).get.foreach { json =>
+
+        (json \ "Vocabs").extract[List[Vocab]]
+          .headOption
+          .foreach { vocab =>
+
+            request(EditMessageReplyMarkup(
+              message.chat.id,
+              message.messageId,
+              replyMarkup = vocabInlineKeyboard(vocab)
+            ))
+
+            ackCallback("")
+          }
       }
     }
   }

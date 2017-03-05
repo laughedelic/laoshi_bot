@@ -30,6 +30,7 @@ package object laoshi {
     val audio = "audio:"
     val chooseList = "chooseList:"
     val lookup = "lookup:"
+    val back = "back:"
   }
 
   def startWith(param: String) =
@@ -142,9 +143,9 @@ package object laoshi {
 
   implicit class HanStringOps(val str: String) extends AnyVal {
     import com.hankcs.hanlp._, seg.common.Term, dictionary.py.Pinyin
-    import scala.collection.JavaConversions._
+    import scala.collection.JavaConverters._
 
-    def terms: List[Term] = HanLP.segment(str).toList
+    def terms: List[Term] = HanLP.segment(str).asScala.toList
 
     def wordTerms: List[Term] = terms
       .filterNot { t =>              // No
@@ -152,7 +153,7 @@ package object laoshi {
         t.nature.name.startsWith("x")     // links, emails, etc.
       }
 
-    def pinyinList: List[Pinyin] = HanLP.convertToPinyinList(str).toList
+    def pinyinList: List[Pinyin] = HanLP.convertToPinyinList(str).asScala.toList
 
     def segments: List[(Term, List[Pinyin])] = {
       terms.map { term =>
@@ -160,9 +161,16 @@ package object laoshi {
       }
     }
 
-    // def termWithPinyin(term: Term, ): String =
-    //   s"${term.word} ${pys.map(_.getPinyinWithToneMark).mkString}"
-    // }
+    // Tries to treat this string as a single syllable and convert to a Pinyin value
+    def asPinyin: Option[Pinyin] = Try(Pinyin.valueOf(str)).toOption
+
+    // Either converts hui4 to huì, or returns string as is
+    def toneNumberToMark: String = asPinyin.map(_.getPinyinWithToneMark).getOrElse(str)
+
+    // Replaces all occurences of tone numbers to tone marks
+    def toneNumbersToMarks: String = {
+      "[a-z]+[1-5]?".r.replaceAllIn(str, { _.matched.trim.toneNumberToMark })
+    }
 
     // Formats segments as strings with their pinyin (with tone marks)
     def segmentedString(delimiter: String = " / "): String =

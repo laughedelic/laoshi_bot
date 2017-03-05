@@ -18,3 +18,5 @@ project/plugins/project/
 
 credentials.*
 db/
+
+.DS_Store
