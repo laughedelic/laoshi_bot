@@ -60,20 +60,6 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     }
   }
 
-  def vocabInlineKeyboard(vocab: Vocab) = InlineKeyboardMarkup(
-    Seq(
-      Seq(
-        // TODO: show add button only whn this word is not studied yet
-        InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}"),
-        InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}|${vocab.reading}"),
-        InlineKeyboardButton("⚛", switchInlineQueryCurrentChat = vocab.writing.toSeq.mkString("，"))
-        // TODO: more actions: correct word, components, get audio, start/ban
-        // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
-        // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
-      )
-    )
-  )
-
   def vocabLookup(word: String)(implicit auth: SkritterAuth, message: Message) = {
     typing
 
@@ -87,11 +73,34 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
         .sortBy { _.toughness }
         .foreach { vocab =>
 
+          val inlineAction = if (vocab.writing.length == 1) "🔍 Words" else "⚛ Split"
+
+          val basicButtons = Seq(
+            InlineKeyboardButton("➕ Add", callbackData = s"${callback.add}${vocab.id}"),
+            InlineKeyboardButton(inlineAction, switchInlineQueryCurrentChat = vocab.writing.toSeq.mkString(" "))
+          )
+
+          val audioButtons = vocab.reading.split(""",\s*""").map { reading =>
+            InlineKeyboardButton(s"🔊 ${reading.toneNumbersToMarks}", callbackData = s"${callback.audio}${vocab.id}|${reading}")
+          }
+
+          val allButtons = basicButtons ++ audioButtons
+
+          val buttonsLayout: Seq[Seq[InlineKeyboardButton]] =
+            if (allButtons.length < 4) Seq(allButtons)
+            else if (allButtons.length % 2 == 0) allButtons.grouped(allButtons.length / 2).toSeq
+            else if (allButtons.length % 3 == 0) allButtons.grouped(allButtons.length / 3).toSeq
+            else                                 allButtons.grouped(3).toSeq
+
+          // TODO: more actions: correct word, components, get audio, start/ban
+          // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+          // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
+
           reply(
             vocab.markdown,
             parseMode = Some(ParseMode.Markdown),
             disableWebPagePreview = Some(true),
-            replyMarkup = vocabInlineKeyboard(vocab)
+            replyMarkup = InlineKeyboardMarkup(buttonsLayout)
           )
         }
 
@@ -339,55 +348,29 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
               }
             }
           }
-          // multiple readings:
-          case readings => {
-            ackCallback(s"Choose pronunciation")
-
-            val buttons = readings.map { reading =>
-              Seq(InlineKeyboardButton(
-                s"🔉${reading.toneNumbersToMarks}",
-                callbackData = s"${callback.audio}${vocabId}|${reading}"
-              ))
-            } :+ Seq(
-              InlineKeyboardButton("🔙", callbackData = s"${callback.back}${vocabId}")
-            )
-
-            request(EditMessageReplyMarkup(
-              message.chat.id,
-              message.messageId,
-              replyMarkup = InlineKeyboardMarkup(buttons)
-            ))
-          }
+          // // multiple readings:
+          // case readings => {
+          //   ackCallback(s"Choose pronunciation")
+          //
+          //   val buttons = readings.map { reading =>
+          //     Seq(InlineKeyboardButton(
+          //       s"🔉${reading.toneNumbersToMarks}",
+          //       callbackData = s"${callback.audio}${vocabId}|${reading}"
+          //     ))
+          //   }
+          //
+          //   request(EditMessageReplyMarkup(
+          //     message.chat.id,
+          //     message.messageId,
+          //     replyMarkup = InlineKeyboardMarkup(buttons)
+          //   ))
+          // }
         }
         case _ => ackCallback("Something went wrong...")
       }
     }
   }
 
-  onCallback(_.data.map(_.startsWith(callback.back)).getOrElse(false)) { implicit cbq =>
-
-    for {
-      vocabId <- cbq.data.map(_.stripPrefix(callback.back))
-      message <- cbq.message
-      auth    <- db.authInfo(cbq.from)
-    } yield {
-      skritter.api.vocabs.withAuth(auth).?("ids" -> vocabId).get.foreach { json =>
-
-        (json \ "Vocabs").extract[List[Vocab]]
-          .headOption
-          .foreach { vocab =>
-
-            request(EditMessageReplyMarkup(
-              message.chat.id,
-              message.messageId,
-              replyMarkup = vocabInlineKeyboard(vocab)
-            ))
-
-            ackCallback("")
-          }
-      }
-    }
-  }
 
   def inlineQueryResultLookup(word: String): InlineQueryResult = InlineQueryResultArticle(word,
     s"${word}",
