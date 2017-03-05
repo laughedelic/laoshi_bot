@@ -139,7 +139,8 @@ package object laoshi {
     "zh" ->    "🇨🇳"
   )
 
-
+  val PinyinSyllable  = "[a-zA-Z]+[1-5]?".r
+  val PinyinSyllables = s"""(?:(${PinyinSyllable.regex})\\s*)+""".r
 
   implicit class HanStringOps(val str: String) extends AnyVal {
     import com.hankcs.hanlp._, seg.common.Term, dictionary.py.Pinyin

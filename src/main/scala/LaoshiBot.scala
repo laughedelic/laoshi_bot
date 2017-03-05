@@ -383,22 +383,28 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     // } //.getOrElse("")
   )
 
+  def inlineQueryResultAudio(audio: Audio): InlineQueryResult = InlineQueryResultAudio(
+    audio.id + audio.source,
+    audio.mp3,
+    performer = audio.source,
+    title   = audio.reading.toneNumbersToMarks,
+    caption = audio.reading.toneNumbersToMarks
+  )
+
   override def onInlineQuery(iq: InlineQuery) = if (iq.query.trim.nonEmpty) {
     def answer(results: Seq[InlineQueryResult]) = request(AnswerInlineQuery(iq.id, results))
 
-    val cjkWords = iq.query.wordTerms.map(_.word).filter(_.isIdeographic).distinct
+    val allWords = iq.query.wordTerms.map(_.word)
+    val cjkWords = allWords.filter(_.isIdeographic)
 
     // val results: Seq[InlineQueryResult] =
-    if (cjkWords.isEmpty) answer(Seq())
-    else cjkWords match {
-      // case List(singleWord) => {
-        // TODO: links for this word
-      case List(character) if character.length == 1 => {
+    if (cjkWords.nonEmpty) cjkWords.distinct match {
+      case List(word) if word.length == 1 => {
 
         db.authInfo(iq.from).foreach { implicit auth =>
 
           skritter.api.vocabs.withAuth(auth).?(
-            "q" -> character,
+            "q" -> word,
             "include_containing" -> true.toString,
             "fields" -> "writing"
           ).get.foreach { json =>
@@ -409,6 +415,27 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
         }
       }
       case words => answer( words.map(inlineQueryResultLookup) )
+
+    } else iq.query match {
+      case PinyinSyllables(syllables) => {
+
+        db.authInfo(iq.from).foreach { implicit auth =>
+
+          skritter.api.vocabs.withAuth(auth).?(
+            "q" -> iq.query,
+            "fields" -> "audios"
+          ).get.foreach { json =>
+            val audios = (json \ "Vocabs" \ "audios")
+              .extract[List[List[Audio]]]
+              .flatten
+              // .filter{ _.reading == iq.query }
+              .distinct
+
+            answer( audios.map(inlineQueryResultAudio) )
+          }
+        }
+      }
+      case _ => answer(Seq())
     }
   }
 

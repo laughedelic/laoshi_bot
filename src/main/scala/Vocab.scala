@@ -3,7 +3,7 @@ package laughedelic.telegram.bot.laoshi
 import java.net.URL
 
 case class Audio(
-  // id: String,
+  id: String,
   source: String,
   reading: String,
   mp3: String
