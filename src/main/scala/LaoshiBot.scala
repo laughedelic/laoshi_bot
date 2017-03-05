@@ -156,9 +156,9 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
 
     } else {
 
-      reply("Not enough 中文 in your message!",
-        replyMarkup = ReplyKeyboardRemove()
-      )
+      // reply("Not enough 中文 in your message!",
+      //   replyMarkup = ReplyKeyboardRemove()
+      // )
     }
   }
 
@@ -383,12 +383,11 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     // } //.getOrElse("")
   )
 
-  def inlineQueryResultAudio(audio: Audio): InlineQueryResult = InlineQueryResultAudio(
-    audio.id + audio.source,
-    audio.mp3,
-    performer = audio.source,
-    title   = audio.reading.toneNumbersToMarks,
-    caption = audio.reading.toneNumbersToMarks
+  // def inlineQueryResultAudio(audio: Audio): InlineQueryResult =
+
+  case class VocabAudios(
+    writing: String,
+    audios: List[Audio]
   )
 
   override def onInlineQuery(iq: InlineQuery) = if (iq.query.trim.nonEmpty) {
@@ -423,15 +422,27 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
 
           skritter.api.vocabs.withAuth(auth).?(
             "q" -> iq.query,
-            "fields" -> "audios"
+            "fields" -> "writing,audios"
           ).get.foreach { json =>
-            val audios = (json \ "Vocabs" \ "audios")
-              .extract[List[List[Audio]]]
-              .flatten
-              // .filter{ _.reading == iq.query }
-              .distinct
+            val audiosWithWriting = for {
+              v <- (json \ "Vocabs").extract[List[VocabAudios]]
+              a <- v.audios
+            } yield (a, v.writing)
 
-            answer( audios.map(inlineQueryResultAudio) )
+            val results = audiosWithWriting
+              .groupBy { case (audio, _) => audio }
+              .mapValues { pairs => pairs.map(_._2) }
+              .map { case (audio, writings) =>
+                InlineQueryResultAudio(
+                  audio.id + audio.source,
+                  audio.mp3,
+                  performer = writings.mkString("；"),
+                  title   = audio.reading.toneNumbersToMarks,
+                  caption = audio.reading.toneNumbersToMarks
+                )
+              }.toSeq
+
+            answer( results )
           }
         }
       }
