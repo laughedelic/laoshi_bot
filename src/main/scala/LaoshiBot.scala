@@ -8,6 +8,8 @@ import akka.stream.ActorMaterializer
 
 import org.json4s._, jackson.JsonMethods._, JsonDSL._
 
+import java.net.URLEncoder
+
 import scala.concurrent._, duration._
 import scala.util._
 
@@ -63,8 +65,8 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
       Seq(
         // TODO: show add button only whn this word is not studied yet
         InlineKeyboardButton("➕", callbackData = s"${callback.add}${vocab.id}"),
-        InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}|${vocab.reading}")
-        // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
+        InlineKeyboardButton("🔊", callbackData = s"${callback.audio}${vocab.id}|${vocab.reading}"),
+        InlineKeyboardButton("⚛", switchInlineQueryCurrentChat = vocab.writing.toSeq.mkString("，"))
         // TODO: more actions: correct word, components, get audio, start/ban
         // InlineKeyboardButton("⭐️", callbackData = s"${callback.add}${vocab.id}"),
         // InlineKeyboardButton("🚫", callbackData = s"${callback.add}${vocab.id}")
@@ -103,8 +105,8 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     }
   }
 
-  // This react on the text without any commands
-  on(msg => msg.text.nonEmpty && !msg.text.map(_.startsWith("/")).getOrElse(false)) { implicit message =>
+  // This reacts on the text without any commands
+  on(msg => !msg.text.map(_.startsWith("/")).getOrElse(false)) { implicit message =>
 
     // // messages that start with 🔍 are treated as the ones with /lookup
     // if (message.text.map(_.startsWith("🔍")).getOrElse(false)) {
@@ -112,22 +114,43 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     //     message.text.foreach(vocabLookup)
     //   }
     // } else {
-      // otherwise we segment the incoming message and offer to look up words
-      val text = message.text.getOrElse("")
 
-      if (text.isChineseEnough(minWords = 2, minPercentage = 0.5)) {
-        typing
+    // otherwise we segment the incoming message and offer to look up words
+    val text = message.text.getOrElse("")
 
-        reply(
-          text.segmentedString(),
-          parseMode = Some(ParseMode.Markdown)
-          // replyToMessageId = message.messageId,
-          // replyMarkup = InlineKeyboardMarkup(Seq(Seq(
-          //   InlineKeyboardButton("Lookup a word", callbackData = s"${callback.lookup}")
-          // )))
-        )
+    val allWords = text.wordTerms.map(_.word)
+    val cjkWords = allWords.filter(_.isIdeographic)
+
+    if ( // only one word and it's Chinese
+      allWords.length == 1 &&
+      cjkWords.length == 1
+    ) {
+      typing
+
+      message.from.flatMap(db.authInfo).foreach { implicit auth =>
+        cjkWords.headOption.foreach(vocabLookup)
       }
-    // }
+    } else if ( // it's a text with
+       (cjkWords.length > 1) &&                            // more than 1 Chinese word
+      ((cjkWords.length: Double) / allWords.length) > 0.5  // more than a half of words are Chinese
+    ) {
+      typing
+
+      reply(
+        text.segmentedString(),
+        parseMode = Some(ParseMode.Markdown),
+        replyToMessageId = message.messageId,
+        replyMarkup = InlineKeyboardMarkup(Seq(Seq(
+          InlineKeyboardButton("Lookup a word", switchInlineQueryCurrentChat = text)
+        )))
+      )
+
+    } else {
+
+      reply("Not enough 中文 in your message!",
+        replyMarkup = ReplyKeyboardRemove()
+      )
+    }
   }
 
   // CALLBACKS //
@@ -290,22 +313,24 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
               "q" -> reading
             ).get.foreach { json =>
 
-              val linkOpt = (json \ "Vocabs").extract[List[Vocab]]
+              val audioOpt = (json \ "Vocabs").extract[List[Vocab]]
                 .flatMap(_.audios)
                 .filter { _.reading == reading }
                 .headOption
-                .map(_.mp3)
+                // .map(_.mp3)
 
-              linkOpt match {
+              audioOpt match {
                 case None =>
                   ackCallback(s"There is no recorded audio for ${reading.toneNumbersToMarks} 😟")
-                case Some(link) => {
+                case Some(audio) => {
 
                   // TODO: convert it to .ogg voice messages
                   request(SendAudio(
                     message.chat.id,
-                    link,
-                    caption = reading.toneNumbersToMarks,
+                    audio.mp3,
+                    // performer = audio.source,
+                    // title = audio.reading.toneNumbersToMarks,
+                    caption = audio.reading.toneNumbersToMarks,
                     replyToMessageId = message.messageId
                   ))
 
@@ -361,6 +386,46 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
             ackCallback("")
           }
       }
+    }
+  }
+
+  def inlineQueryResultLookup(word: String): InlineQueryResult = InlineQueryResultArticle(word,
+    s"${word}",
+    InputTextMessageContent(s"/lookup ${word}"),
+    description = word.pinyinList.mkString.toneNumbersToMarks,
+    thumbUrl = ""
+    // word.headOption.map { c =>
+    //   val character = URLEncoder.encode(c.toString, "UTF-8")
+    //   s"""https://upload.wikimedia.org/wikipedia/commons/0/01/${character}-red.png"""
+    // } //.getOrElse("")
+  )
+
+  override def onInlineQuery(iq: InlineQuery) = if (iq.query.trim.nonEmpty) {
+    def answer(results: Seq[InlineQueryResult]) = request(AnswerInlineQuery(iq.id, results))
+
+    val cjkWords = iq.query.wordTerms.map(_.word).filter(_.isIdeographic).distinct
+
+    // val results: Seq[InlineQueryResult] =
+    if (cjkWords.isEmpty) answer(Seq())
+    else cjkWords match {
+      // case List(singleWord) => {
+        // TODO: links for this word
+      case List(character) if character.length == 1 => {
+
+        db.authInfo(iq.from).foreach { implicit auth =>
+
+          skritter.api.vocabs.withAuth(auth).?(
+            "q" -> character,
+            "include_containing" -> true.toString,
+            "fields" -> "writing"
+          ).get.foreach { json =>
+            val containingWords = (json \ "ContainingVocabs" \ "writing").extract[List[String]]
+
+            answer( containingWords.map(inlineQueryResultLookup) )
+          }
+        }
+      }
+      case words => answer( words.map(inlineQueryResultLookup) )
     }
   }
 

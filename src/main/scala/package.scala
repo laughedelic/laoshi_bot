@@ -162,10 +162,10 @@ package object laoshi {
     }
 
     // Tries to treat this string as a single syllable and convert to a Pinyin value
-    def asPinyin: Option[Pinyin] = Try(Pinyin.valueOf(str)).toOption
+    def asPinyinSyllable: Option[Pinyin] = Try(Pinyin.valueOf(str)).toOption
 
     // Either converts hui4 to huì, or returns string as is
-    def toneNumberToMark: String = asPinyin.map(_.getPinyinWithToneMark).getOrElse(str)
+    def toneNumberToMark: String = asPinyinSyllable.map(_.getPinyinWithToneMark).getOrElse(str)
 
     // Replaces all occurences of tone numbers to tone marks
     def toneNumbersToMarks: String = {
@@ -197,16 +197,19 @@ package object laoshi {
     def isIdeographic: Boolean =
       str.codePoints.toArray.forall { Character.isIdeographic(_) }
 
-    // Determines if the text contains enough Chinese to provide help for it
-    def isChineseEnough(
-      minWords: Int,         // minimum number Chinese words (not characters)
-      minPercentage: Double  // minimum of chinese words in relation to all words
-    ): Boolean = {
-      val allWords = wordTerms.map(_.word)
-      val cjkWords = allWords.filter(_.isIdeographic)
-
-      (cjkWords.length >= minWords) &&
-      ((cjkWords.length: Double) / allWords.length) >= minPercentage
-    }
+    // // Determines if the text contains enough Chinese to provide help for it
+    // def onlyCJKWordsIf(
+    //   minWords: Int,
+    //   minPercentage: Double  // minimum of chinese words in relation to all words
+    // ): Option[List[Term]] = {
+    //   val allWords = wordTerms.map(_.word)
+    //   val cjkWords = allWords.filter(_.isIdeographic)
+    //
+    //   if (
+    //     (cjkWords.length >= minWords) &&
+    //     ((cjkWords.length: Double) / allWords.length) >= minPercentage
+    //   ) Some(cjkWords)
+    //   else None
+    // }
   }
 }
