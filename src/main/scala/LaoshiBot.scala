@@ -73,18 +73,20 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
         .sortBy { _.toughness }
         .foreach { vocab =>
 
-          val inlineAction = if (vocab.writing.length == 1) "🔍 Words" else "⚛ Split"
-
-          val basicButtons = Seq(
-            InlineKeyboardButton("➕ Add", callbackData = s"${callback.add}${vocab.id}"),
-            InlineKeyboardButton(inlineAction, switchInlineQueryCurrentChat = vocab.writing.toSeq.mkString(" "))
+          val allButtons = Seq(
+            InlineKeyboardButton(
+              "➕ Add",
+              callbackData = s"${callback.add}${vocab.id}"
+            ),
+            InlineKeyboardButton(
+              if (vocab.writing.length == 1) "🔍 Words" else "⚛ Split",
+              switchInlineQueryCurrentChat = vocab.writing.toSeq.mkString(" ")
+            ),
+            InlineKeyboardButton(
+              s"🔊 ${vocab.reading.toneNumbersToMarks}",
+              switchInlineQueryCurrentChat = vocab.reading
+            )
           )
-
-          val audioButtons = vocab.reading.split(""",\s*""").map { reading =>
-            InlineKeyboardButton(s"🔊 ${reading.toneNumbersToMarks}", callbackData = s"${callback.audio}${vocab.id}|${reading}")
-          }
-
-          val allButtons = basicButtons ++ audioButtons
 
           val buttonsLayout: Seq[Seq[InlineKeyboardButton]] =
             if (allButtons.length < 4) Seq(allButtons)
@@ -302,74 +304,74 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
   }
 
   // AUDIO callback
-  onCallback(_.data.map(_.startsWith(callback.audio)).getOrElse(false)) { implicit cbq =>
-
-    for {
-      data    <- cbq.data.map(_.stripPrefix(callback.audio))
-      message <- cbq.message
-      auth    <- db.authInfo(cbq.from)
-    } yield {
-
-      data.split('|').toList match {
-        case List(vocabId, readings) => readings.split(""",\s*""").toList match {
-          case Nil => ackCallback("There is no recorded audio for this")
-          // single reading:
-          case List(reading) => {
-
-            uploadingAudio(message)
-
-            skritter.api.vocabs.withAuth(auth).?(
-              "q" -> reading
-            ).get.foreach { json =>
-
-              val audioOpt = (json \ "Vocabs").extract[List[Vocab]]
-                .flatMap(_.audios)
-                .filter { _.reading == reading }
-                .headOption
-                // .map(_.mp3)
-
-              audioOpt match {
-                case None =>
-                  ackCallback(s"There is no recorded audio for ${reading.toneNumbersToMarks} 😟")
-                case Some(audio) => {
-
-                  // TODO: convert it to .ogg voice messages
-                  request(SendAudio(
-                    message.chat.id,
-                    audio.mp3,
-                    // performer = audio.source,
-                    // title = audio.reading.toneNumbersToMarks,
-                    caption = audio.reading.toneNumbersToMarks,
-                    replyToMessageId = message.messageId
-                  ))
-
-                  ackCallback(s"Audio for 🔉${reading.toneNumbersToMarks} is uploaded!")
-                }
-              }
-            }
-          }
-          // // multiple readings:
-          // case readings => {
-          //   ackCallback(s"Choose pronunciation")
-          //
-          //   val buttons = readings.map { reading =>
-          //     Seq(InlineKeyboardButton(
-          //       s"🔉${reading.toneNumbersToMarks}",
-          //       callbackData = s"${callback.audio}${vocabId}|${reading}"
-          //     ))
-          //   }
-          //
-          //   request(EditMessageReplyMarkup(
-          //     message.chat.id,
-          //     message.messageId,
-          //     replyMarkup = InlineKeyboardMarkup(buttons)
-          //   ))
-          // }
-        }
-        case _ => ackCallback("Something went wrong...")
-      }
-    }
-  }
+  // onCallback(_.data.map(_.startsWith(callback.audio)).getOrElse(false)) { implicit cbq =>
+  //
+  //   for {
+  //     data    <- cbq.data.map(_.stripPrefix(callback.audio))
+  //     message <- cbq.message
+  //     auth    <- db.authInfo(cbq.from)
+  //   } yield {
+  //
+  //     data.split(""",\s*""").toList match {
+  //       case List(readings) => readings match {
+  //         case Nil => ackCallback("There is no recorded audio for this")
+  //         // single reading:
+  //         case List(reading) => {
+  //
+  //           uploadingAudio(message)
+  //
+  //           skritter.api.vocabs.withAuth(auth).?(
+  //             "q" -> reading
+  //           ).get.foreach { json =>
+  //
+  //             val audioOpt = (json \ "Vocabs").extract[List[Vocab]]
+  //               .flatMap(_.audios)
+  //               .filter { _.reading == reading }
+  //               .headOption
+  //               // .map(_.mp3)
+  //
+  //             audioOpt match {
+  //               case None =>
+  //                 ackCallback(s"There is no recorded audio for ${reading.toneNumbersToMarks} 😟")
+  //               case Some(audio) => {
+  //
+  //                 // TODO: convert it to .ogg voice messages
+  //                 request(SendAudio(
+  //                   message.chat.id,
+  //                   audio.mp3,
+  //                   // performer = audio.source,
+  //                   // title = audio.reading.toneNumbersToMarks,
+  //                   caption = audio.reading.toneNumbersToMarks,
+  //                   replyToMessageId = message.messageId
+  //                 ))
+  //
+  //                 ackCallback(s"Audio for 🔉${reading.toneNumbersToMarks} is uploaded!")
+  //               }
+  //             }
+  //           }
+  //         }
+  //         // // multiple readings:
+  //         // case readings => {
+  //         //   ackCallback(s"Choose pronunciation")
+  //         //
+  //         //   val buttons = readings.map { reading =>
+  //         //     Seq(InlineKeyboardButton(
+  //         //       s"🔉${reading.toneNumbersToMarks}",
+  //         //       callbackData = s"${callback.audio}${vocabId}|${reading}"
+  //         //     ))
+  //         //   }
+  //         //
+  //         //   request(EditMessageReplyMarkup(
+  //         //     message.chat.id,
+  //         //     message.messageId,
+  //         //     replyMarkup = InlineKeyboardMarkup(buttons)
+  //         //   ))
+  //         // }
+  //       }
+  //       case _ => ackCallback("Something went wrong...")
+  //     }
+  //   }
+  // }
 
 
   def inlineQueryResultLookup(word: String): InlineQueryResult = InlineQueryResultArticle(word,
@@ -420,30 +422,39 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
 
         db.authInfo(iq.from).foreach { implicit auth =>
 
-          skritter.api.vocabs.withAuth(auth).?(
-            "q" -> iq.query,
-            "fields" -> "writing,audios"
-          ).get.foreach { json =>
-            val audiosWithWriting = for {
-              v <- (json \ "Vocabs").extract[List[VocabAudios]]
-              a <- v.audios
-            } yield (a, v.writing)
+          iq.query.split(""",\s*""").foreach { reading =>
 
-            val results = audiosWithWriting
-              .groupBy { case (audio, _) => audio }
-              .mapValues { pairs => pairs.map(_._2) }
-              .map { case (audio, writings) =>
-                InlineQueryResultAudio(
-                  audio.id + audio.source,
-                  audio.mp3,
-                  performer = writings.mkString("；"),
-                  title   = audio.reading.toneNumbersToMarks,
-                  caption = audio.reading.toneNumbersToMarks
-                )
-              }.toSeq
+            skritter.api.vocabs.withAuth(auth).?(
+              "q" -> reading,
+              "fields" -> "writing,audios"
+            ).get.foreach { json =>
 
-            answer( results )
+              val audiosWithWriting = for {
+                v <- (json \ "Vocabs").extract[List[VocabAudios]]
+                a <- v.audios
+              } yield (a, v.writing)
+
+              val results = audiosWithWriting
+                .groupBy { case (audio, _) => audio }
+                .mapValues { pairs => pairs.map(_._2) }
+                .map { case (audio, writings) =>
+
+                  val pinyin = audio.reading.toneNumbersToMarks
+                  val words = writings.mkString("；")
+
+                  InlineQueryResultAudio(
+                    audio.id + audio.source,
+                    audio.mp3,
+                    performer = words,
+                    title   = pinyin,
+                    caption = s"🔊${pinyin}: ${words}"
+                  )
+                }.toSeq
+
+              answer( results )
+            }
           }
+
         }
       }
       case _ => answer(Seq())

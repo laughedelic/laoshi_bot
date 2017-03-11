@@ -174,8 +174,8 @@ package object laoshi {
     }
 
     // Formats segments as strings with their pinyin (with tone marks)
-    def segmentedString(delimiter: String = " / "): String =
-      segments.foldLeft("") { case (acc, (term, pys)) =>
+    def segmentedString(delimiter: String = " "): String =
+      segments.foldLeft(Seq[String]()) { case (acc, (term, pys)) =>
 
         val py = {
           val syllables = pys.filterNot(_ == Pinyin.none5)
@@ -184,13 +184,15 @@ package object laoshi {
         }
 
         // if this term doesn't have pinyin it's just "word", otherwise "拼音 pīnyīn"
-        val termWithPinyin = Seq(Some(term.word), py).flatten.mkString(" ")
+        // val termWithPinyin = Seq(Some(term.word), py).flatten.mkString(" ")
+        val pinyinOrWord = py.getOrElse(term.word)
 
-        acc + Seq( // punctuation sticks to the previous word:
-          if (term.nature.name.startsWith("w")) "" else delimiter,
-          termWithPinyin
-        ).mkString
-      }
+        // acc + Seq( // punctuation sticks to the previous word:
+        //   if (term.nature.name.startsWith("w")) "" else delimiter,
+        //   termWithPinyin
+        // ).mkString
+        acc :+ pinyinOrWord
+      }.mkString(delimiter)
 
     // These are not related to HanLP:
 
