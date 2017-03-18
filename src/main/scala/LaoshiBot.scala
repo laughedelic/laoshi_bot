@@ -224,22 +224,23 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
         case vocabId :: _ => {
 
           skritter.api.vocablists.withAuth(auth).?(
-            "sort" -> "custom"
+            "sort" -> "custom",
+            "limit" -> "5"
           ).get.foreach { json =>
 
             val lists = (json \ "VocabLists").extract[List[VocabList]].filter { list =>
-              !list.disabled &&
-              (list.studyingMode == "adding") &&
-              list.currentSection.nonEmpty
+              !list.disabled
+              // (list.studyingMode == "adding") &&
+              // list.currentSection.nonEmpty
             }
             logger.debug(lists.mkString("\n"))
 
             val buttons = lists.map { list =>
               val args = Seq(
-                vocabId,
-                list.id,
-                list.currentSection.get
-              ).mkString("|")
+                Some(vocabId),
+                Some(list.id),
+                list.currentSection
+              ).flatten.mkString("|")
               logger.debug(args)
 
               Seq( InlineKeyboardButton(list.name, callbackData = s"${callback.chooseList}${args}") )
@@ -261,6 +262,20 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     }
   }
 
+  def addWord(vocabId: String, listId: String, sectionId: String)(implicit auth: SkritterAuth): Future[JValue] = {
+    val newRow: JObject = ("vocabId" -> vocabId)
+    val sectionUri = (skritter.api.vocablists / listId / "sections" / sectionId).withAuth(auth)
+
+    for {
+      sectionJson <- sectionUri.get
+      response    <- sectionUri.put(
+        (sectionJson \ "VocabListSection") transformField { case JField("rows", JArray(rows)) =>
+          "rows" -> JArray(rows :+ newRow)
+        }
+      )
+    } yield response
+  }
+
   // CHOOSE LIST callback
   onCallback(_.data.map(_.startsWith(callback.chooseList)).getOrElse(false)) { implicit cbq =>
     logger.debug("\nchoosing list\n")
@@ -272,20 +287,9 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
     } yield {
 
       data.split('|').toList match {
-        case vocabId :: listID :: sectionID :: _ => {
-          // ackCallback("Adding it to the list...")
+        case vocabId :: listId :: sectionId :: Nil => {
 
-          val newRow: JObject = ("vocabId" -> vocabId)
-          val sectionUri = (skritter.api.vocablists / listID / "sections" / sectionID).withAuth(auth)
-
-          for {
-            sectionJson <- sectionUri.get
-            response <- sectionUri.put(
-              (sectionJson \ "VocabListSection") transformField { case JField("rows", JArray(rows)) =>
-                "rows" -> JArray(rows :+ newRow)
-              }
-            )
-          } yield {
+          addWord(vocabId, listId, sectionId)(auth).foreach { response =>
             // logger.debug(pretty(render(response)))
 
             request(EditMessageReplyMarkup(
@@ -295,6 +299,61 @@ case object LaoshiBot extends App with TelegramBot with Polling with Commands wi
             ))
 
             ackCallback("Done!")
+          }
+        }
+        case vocabId :: listId :: Nil => { // need to choose a section
+
+          (skritter.api.vocablists / listId).withAuth(auth).?(
+            "fields" -> "sections",
+            "includeSectionCompletion" -> "true"
+            // "sectionFields" -> "id,name,deleted,completed,changed"
+          ).get.foreach { json =>
+
+            val sections = (json \ "VocabList" \ "sections")
+              .extract[List[VocabListSection]]
+              .sortBy(_.changed)
+
+            logger.debug(sections.mkString("\n"))
+
+            sections match {
+              // FIXME: offer to create a new one
+              case Nil => ackCallback("There are no sections in the list!")
+              // single section
+              case List(singleSection) => addWord(vocabId, listId, singleSection.id)(auth).foreach { response =>
+
+                request(EditMessageReplyMarkup(
+                  message.chat.id,
+                  message.messageId,
+                  replyMarkup = None
+                ))
+
+                ackCallback("Done!")
+              }
+              // multiple sections
+              case _ => {
+                val buttons = sections.map { section =>
+                  val args = Seq(
+                    vocabId,
+                    listId,
+                    section.id
+                  ).mkString("|")
+                  logger.debug(args)
+
+                  val completed = if (section.completed.nonEmpty) "✔" else ""
+
+                  Seq( InlineKeyboardButton(s"${completed}${section.name}", callbackData = s"${callback.chooseList}${args}") )
+                }
+                // TODO: offer to create a new section
+
+                request(EditMessageReplyMarkup(
+                  message.chat.id,
+                  message.messageId,
+                  replyMarkup = InlineKeyboardMarkup(buttons)
+                ))
+
+                ackCallback("Now choose a section")
+              }
+            }
           }
         }
         case _ => ackCallback("Something went wrong...")
